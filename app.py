@@ -5,113 +5,110 @@ import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 from sklearn.preprocessing import StandardScaler
 
-# --- Page Config ---
-st.set_page_config(page_title="Hierarchical Clustering Tool", layout="wide")
+# Page Configuration
+st.set_page_config(page_title="Hierarchical Clustering Pro", layout="wide")
 
-# --- Custom Styling ---
+# Custom CSS for design
 st.markdown("""
     <style>
     .main {
         background-color: #f5f7f9;
     }
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        background-color: #007bff;
-        color: white;
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     </style>
-    """, unsafe_allow_评估=True)
+    """, unsafe_allow_index=True)
 
-# --- Sidebar ---
-st.sidebar.title("⚙️ Settings")
-uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
-
+# Sidebar Configuration
+st.sidebar.header("🛠️ Configuration")
 linkage_method = st.sidebar.selectbox(
     "Linkage Method", 
-    ["ward", "single", "complete", "average", "centroid"]
+    ['ward', 'single', 'complete', 'average', 'centroid'],
+    index=0
 )
+scaling_option = st.sidebar.checkbox("Scale Data (StandardScaler)", value=True)
+color_threshold = st.sidebar.slider("Color Threshold (Cut-off)", 0, 100, 50)
 
-# --- Main App Logic ---
 st.title("📊 Hierarchical Clustering Dashboard")
-st.markdown("This app performs hierarchical clustering on your data and visualizes the relationship between points using a Dendrogram.")
+st.markdown("Upload your CSV file to perform hierarchical clustering and visualize the dendrogram.")
+
+# File Uploader
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 if uploaded_file is not None:
     # Load Data
     df = pd.read_csv(uploaded_file)
     
-    col1, col2 = st.columns([1, 2])
+    # Create Tabs
+    tab1, tab2, tab3 = st.tabs(["📋 Data Preview", "🌳 Dendrogram", "🧪 Cluster Results"])
     
-    with col1:
-        st.subheader("1. Data Preview")
+    with tab1:
+        st.subheader("Dataset Overview")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Rows", df.shape[0])
+        col2.metric("Columns", df.shape[1])
+        col3.metric("Missing Values", df.isna().sum().sum())
+        
         st.dataframe(df.head(10), use_container_width=True)
         
         # Column Selection
-        all_columns = df.columns.tolist()
+        all_cols = df.columns.tolist()
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        
-        selected_cols = st.multiselect(
-            "Select columns for clustering:", 
-            options=numeric_cols, 
-            default=numeric_cols
-        )
-        
+        selected_cols = st.multiselect("Select columns for clustering", numeric_cols, default=numeric_cols)
+
     if len(selected_cols) >= 2:
         X = df[selected_cols]
         
         # Preprocessing
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        # Linkage
-        linked = linkage(X_scaled, method=linkage_method)
-        
-        with col2:
-            st.subheader("2. Cluster Visualization")
+        if scaling_option:
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+        else:
+            X_scaled = X.values
+
+        # Perform Clustering
+        with st.spinner('Calculating linkage...'):
+            linked = linkage(X_scaled, method=linkage_method)
+
+        with tab2:
+            st.subheader("Hierarchical Clustering Dendrogram")
+            fig, ax = plt.subplots(figsize=(12, 7))
             
-            # Interactive Threshold
-            max_d = st.slider("Distance Threshold (Cut-off Line)", 
-                              min_value=0.0, 
-                              max_value=float(np.max(linked[:, 2])), 
-                              value=float(np.max(linked[:, 2]) * 0.7))
-            
-            # Plotting
-            fig, ax = plt.subplots(figsize=(10, 6))
             dendrogram(
                 linked,
+                ax=ax,
                 orientation='top',
                 distance_sort='descending',
                 show_leaf_counts=True,
-                ax=ax
+                color_threshold=color_threshold,
+                leaf_font_size=10
             )
-            ax.axhline(y=max_d, color='r', linestyle='--')
-            ax.set_title(f"Dendrogram (Method: {linkage_method})")
-            ax.set_xlabel("Data Points")
-            ax.set_ylabel("Euclidean Distance")
+            
+            plt.title(f"Dendrogram (Method: {linkage_method})", fontsize=15)
+            plt.xlabel("Data Points Index", fontsize=12)
+            plt.ylabel("Euclidean Distance", fontsize=12)
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
             
             st.pyplot(fig)
-
-        # Cluster Assignment
-        st.divider()
-        st.subheader("3. Cluster Results")
-        
-        # Calculate cluster labels based on the threshold
-        df['Cluster_Labels'] = fcluster(linked, max_d, criterion='distance')
-        
-        res_col1, res_col2 = st.columns([2, 1])
-        with res_col1:
-            st.write("Data with Cluster Labels:")
-            st.dataframe(df, use_container_width=True)
-        
-        with res_col2:
-            st.write("Cluster Distribution:")
-            st.write(df['Cluster_Labels'].value_counts())
             
-            # Download Result
+        with tab3:
+            st.subheader("Extracted Clusters")
+            num_clusters = st.number_input("Enter number of clusters to extract", min_value=1, max_value=20, value=3)
+            
+            # Form clusters
+            df['Cluster_ID'] = fcluster(linked, num_clusters, criterion='maxclust')
+            
+            st.write(f"Data with assigned Cluster IDs (Total Clusters: {num_clusters})")
+            st.dataframe(df, use_container_width=True)
+            
+            # Download button
             csv = df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Results as CSV",
+                label="Download Clustered Data as CSV",
                 data=csv,
                 file_name='clustered_data.csv',
                 mime='text/csv',
@@ -120,14 +117,13 @@ if uploaded_file is not None:
         st.warning("Please select at least 2 numeric columns to perform clustering.")
 
 else:
-    # Landing Page State
-    st.info("👈 Please upload a CSV file in the sidebar to get started.")
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/ad/Hierarchical_clustering_dendrogram.png/800px-Hierarchical_clustering_dendrogram.png", width=400)
-    st.markdown("""
-    **How to use:**
-    1. Upload a dataset (like your `D10_data.csv`).
-    2. Select the numeric features you want to analyze.
-    3. Adjust the **Linkage Method** to see how clusters form.
-    4. Move the **Distance Threshold** slider to decide how many clusters to create.
-    5. Download your final results.
-    """)
+    st.info("👋 Please upload a CSV file in the sidebar to get started.")
+    # Example format info
+    with st.expander("View required CSV format"):
+        st.write("Your CSV should look like this:")
+        example_df = pd.DataFrame({
+            'x': [6.42, 8.22, 6.09],
+            'y': [3.41, 5.56, 4.22],
+            'label': [1, 1, 1]
+        })
+        st.table(example_df)
